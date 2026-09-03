@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dziennik Ciśnienia</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 20px; background: #f4f6f8; color: #333; }
+    .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); max-width: 400px; margin: auto; }
+    h2 { margin-top: 0; text-align: center; color: #1a73e8; }
+    label { display: block; margin-top: 12px; font-weight: 600; font-size: 0.9em; }
+    input, textarea { width: 100%; padding: 12px; margin-top: 6px; border: 1px solid #ccc; border-radius: 8px; box-sizing: border-box; font-size: 16px; }
+    button { width: 100%; padding: 14px; margin-top: 20px; background: #1a73e8; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; }
+    button:disabled { background: #9aa0a6; }
+    #status { margin-top: 15px; text-align: center; font-weight: bold; }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <h2>Pomiar Ciśnienia</h2>
+  <form id="pressureForm">
+    <label for="sys">Skurczowe (SYS):</label>
+    <input type="number" id="sys" placeholder="np. 120" required inputmode="numeric">
+
+    <label for="dia">Rozkurczowe (DIA):</label>
+    <input type="number" id="dia" placeholder="np. 80" required inputmode="numeric">
+
+    <label for="pulse">Puls (BPM):</label>
+    <input type="number" id="pulse" placeholder="np. 70" required inputmode="numeric">
+
+    <label for="note">Uwagi (opcjonalnie):</label>
+    <textarea id="note" rows="2" placeholder="np. po spacerze, rano"></textarea>
+
+    <button type="submit" id="btnSubmit">Zapisz wynik</button>
+  </form>
+  <div id="status"></div>
+</div>
+
+<script>
+  // Wklej poniżej swój adres URL z wdrożenia Apps Script:
+  const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzP8Sq2z1NIyNkOlBbwEjD421rz7dwIbZjm-2l5mqUoE1vaV7mPm5J-hFoREPgELMFoeQ/exec";
+
+  const form = document.getElementById('pressureForm');
+  const statusDiv = document.getElementById('status');
+  const btn = document.getElementById('btnSubmit');
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    btn.disabled = true;
+    statusDiv.textContent = "Zapisywanie...";
+    statusDiv.style.color = "#555";
+
+    const payload = {
+      sys: document.getElementById('sys').value,
+      dia: document.getElementById('dia').value,
+      pulse: document.getElementById('pulse').value,
+      note: document.getElementById('note').value
+    };
+
+    try {
+      await fetch(SCRIPT_URL, {
+        method: "POST",
+        mode: "no-cors", // ominięcie blokad CORS dla prostych żądań Apps Script
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      statusDiv.textContent = "✓ Zapisano pomyślnie!";
+      statusDiv.style.color = "#1e8e3e";
+      form.reset();
+    } catch (err) {
+      statusDiv.textContent = "✕ Błąd zapisu: " + err.message;
+      statusDiv.style.color = "#d93025";
+    } finally {
+      btn.disabled = false;
+    }
+  });
+</script>
+
+</body>
+</html>
