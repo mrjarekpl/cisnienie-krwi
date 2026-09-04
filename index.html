@@ -15,12 +15,15 @@
     button { width: 100%; padding: 14px; margin-top: 20px; background: #1a73e8; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; }
     button:disabled { background: #9aa0a6; }
     #status { margin-top: 15px; text-align: center; font-weight: bold; }
+    #pending-box { margin-top: 12px; padding: 8px; background: #fff3cd; color: #856404; border-radius: 6px; font-size: 0.85em; text-align: center; display: none; }
   </style>
 </head>
 <body>
 
 <div class="card">
   <h2>Pomiar Ciśnienia</h2>
+  <div id="pending-box">Oczekujące pomiary offline: <span id="pending-count">0</span></div>
+
   <form id="pressureForm">
     <label for="sys">Skurczowe (SYS):</label>
     <input type="number" id="sys" placeholder="np. 120" required inputmode="numeric">
@@ -40,13 +43,78 @@
 </div>
 
 <script>
-  // Wklej poniżej swój adres URL z wdrożenia Apps Script:
-  const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzP8Sq2z1NIyNkOlBbwEjD421rz7dwIbZjm-2l5mqUoE1vaV7mPm5J-hFoREPgELMFoeQ/exec";
+  // Pamiętaj o wklejeniu swojego właściwego adresu Apps Script:
+  const SCRIPT_URL = "TUTAJ_WKLEJ_SWOJ_URL_APPS_SCRIPT";
 
   const form = document.getElementById('pressureForm');
   const statusDiv = document.getElementById('status');
   const btn = document.getElementById('btnSubmit');
+  const pendingBox = document.getElementById('pending-box');
+  const pendingCount = document.getElementById('pending-count');
 
+  // 1. Rejestracja Service Workera
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js').catch(err => console.error('SW Error:', err));
+    });
+  }
+
+  // 2. Zarządzanie kolejką offline w localStorage
+  function getQueue() {
+    return JSON.parse(localStorage.getItem('offlineQueue') || '[]');
+  }
+
+  function saveQueue(queue) {
+    localStorage.setItem('offlineQueue', JSON.stringify(queue));
+    updatePendingBadge();
+  }
+
+  function updatePendingBadge() {
+    const queue = getQueue();
+    if (queue.length > 0) {
+      pendingCount.textContent = queue.length;
+      pendingBox.style.display = 'block';
+    } else {
+      pendingBox.style.display = 'none';
+    }
+  }
+
+  // 3. Funkcja wysyłająca pojedynczy pomiar
+  async function sendMeasurement(data) {
+    return fetch(SCRIPT_URL, {
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data)
+    });
+  }
+
+  // 4. Synchronizacja kolejki z Arkuszem
+  async function syncQueue() {
+    if (!navigator.onLine) return;
+    const queue = getQueue();
+    if (queue.length === 0) return;
+
+    statusDiv.textContent = "Wysyłanie zaległych pomiarów...";
+    statusDiv.style.color = "#1a73e8";
+
+    const remaining = [];
+    for (const item of queue) {
+      try {
+        await sendMeasurement(item);
+      } catch (err) {
+        remaining.push(item);
+      }
+    }
+
+    saveQueue(remaining);
+    if (remaining.length === 0) {
+      statusDiv.textContent = "✓ Wszystkie pomiary zsynchronizowane!";
+      statusDiv.style.color = "#1e8e3e";
+    }
+  }
+
+  // 5. Obsługa wysłania formularza
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     btn.disabled = true;
@@ -57,26 +125,47 @@
       sys: document.getElementById('sys').value,
       dia: document.getElementById('dia').value,
       pulse: document.getElementById('pulse').value,
-      note: document.getElementById('note').value
+      note: document.getElementById('note').value,
+      clientTimestamp: new Date().toISOString() // zachowujemy dokładny czas wykonania pomiaru
     };
 
-    try {
-      await fetch(SCRIPT_URL, {
-        method: "POST",
-        mode: "no-cors", // ominięcie blokad CORS dla prostych żądań Apps Script
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
+    if (!navigator.onLine) {
+      // Brak sieci – od razu do kolejki
+      const queue = getQueue();
+      queue.push(payload);
+      saveQueue(queue);
+      statusDiv.textContent = "Brak internetu. Zapisano w pamięci telefonu (offline).";
+      statusDiv.style.color = "#d97706";
+      form.reset();
+      btn.disabled = false;
+      return;
+    }
 
-      statusDiv.textContent = "✓ Zapisano pomyślnie!";
+    try {
+      await sendMeasurement(payload);
+      statusDiv.textContent = "✓ Zapisano w Arkuszu!";
       statusDiv.style.color = "#1e8e3e";
       form.reset();
+      // Jeśli były jakieś zaległe w kolejce, wyślij je przy okazji
+      syncQueue();
     } catch (err) {
-      statusDiv.textContent = "✕ Błąd zapisu: " + err.message;
-      statusDiv.style.color = "#d93025";
+      // Błąd sieci – wrzucamy do kolejki
+      const queue = getQueue();
+      queue.push(payload);
+      saveQueue(queue);
+      statusDiv.textContent = "Błąd połączenia. Zapisano w pamięci offline.";
+      statusDiv.style.color = "#d97706";
+      form.reset();
     } finally {
       btn.disabled = false;
     }
+  });
+
+  // 6. Nasłuchiwanie powrotu do sieci
+  window.addEventListener('online', syncQueue);
+  window.addEventListener('load', () => {
+    updatePendingBadge();
+    syncQueue();
   });
 </script>
 
